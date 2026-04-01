@@ -28,12 +28,6 @@ A Go service that turns Cursor Web into an OpenAI-compatible API for local deplo
 - Added better compatibility for tool-enforcing orchestrators such as Kilo Code
 - Non-stream requests auto-retry once when a tool call is required but the first pass returns none
 
-## Screenshots
-
-![Home preview](docs/images/home.png)
-![Tool calls preview 1](docs/images/play1.png)
-![Tool calls preview 2](docs/images/play2.png)
-
 ## Endpoints
 
 | Path | Method | Auth | Description |

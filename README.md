@@ -28,12 +28,6 @@
 - 针对 Kilo Code 一类“必须用工具”的编排器增加兼容模式
 - 非流式场景下，若本轮必须调用工具却没有产出 `tool_calls`，会自动补救重试 1 次
 
-## 效果图
-
-![首页预览](docs/images/home.png)
-![调用效果预览 1](docs/images/play1.png)
-![调用效果预览 2](docs/images/play2.png)
-
 ## 接口一览
 
 | 路径 | 方法 | 鉴权 | 说明 |
