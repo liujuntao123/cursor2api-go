@@ -6,6 +6,7 @@ import (
 	"cursor2api-go/handlers"
 	"cursor2api-go/middleware"
 	"cursor2api-go/models"
+	"cursor2api-go/services"
 	"fmt"
 	"net/http"
 	"os"
@@ -36,7 +37,7 @@ func main() {
 
 	// 禁用 Gin 的调试信息输出
 	gin.DisableConsoleColor()
-	
+
 	// 创建路由器（使用 gin.New() 而不是 gin.Default() 以避免默认日志）
 	router := gin.New()
 
@@ -49,11 +50,22 @@ func main() {
 		router.Use(gin.Logger())
 	}
 
+	// 启动前探测上游允许模型，并直接覆盖运行时模型列表
+	discoveryService := services.NewCursorService(cfg)
+	discoveryCtx, cancelDiscovery := context.WithTimeout(context.Background(), time.Duration(cfg.Timeout)*time.Second)
+	discoveredModels, err := discoveryService.DiscoverAvailableModels(discoveryCtx)
+	cancelDiscovery()
+	if err != nil {
+		logrus.Fatalf("Failed to discover upstream models: %v", err)
+	}
+	cfg.SetBaseModels(discoveredModels)
+	logrus.Infof("Discovered upstream models: %s", strings.Join(discoveredModels, ", "))
+
 	// 创建处理器
 	handler := handlers.NewHandler(cfg)
 
 	// 注册路由
-	setupRoutes(router, handler)
+	setupRoutes(router, handler, cfg)
 
 	// 创建HTTP服务器
 	server := &http.Server{
@@ -87,7 +99,7 @@ func main() {
 	logrus.Info("Server exited")
 }
 
-func setupRoutes(router *gin.Engine, handler *handlers.Handler) {
+func setupRoutes(router *gin.Engine, handler *handlers.Handler, cfg *config.Config) {
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -106,7 +118,8 @@ func setupRoutes(router *gin.Engine, handler *handlers.Handler) {
 		v1.GET("/models", handler.ListModels) // 模型列表不需要鉴权
 
 		// 聊天完成
-		v1.POST("/chat/completions", middleware.AuthRequired(), handler.ChatCompletions)
+		v1.POST("/chat/completions", middleware.AuthRequired(cfg), handler.ChatCompletions)
+		v1.POST("/admin/api-key", middleware.AuthRequired(cfg), handler.UpdateAPIKey)
 	}
 
 	// 静态文件服务（如果需要）
@@ -125,7 +138,7 @@ func printStartupBanner(cfg *config.Config) {
 	fmt.Printf("🚀 服务地址:  http://localhost:%d\n", cfg.Port)
 	fmt.Printf("📚 API 文档:  http://localhost:%d/\n", cfg.Port)
 	fmt.Printf("💊 健康检查:  http://localhost:%d/health\n", cfg.Port)
-	fmt.Printf("🔑 API 密钥:  %s\n", maskAPIKey(cfg.APIKey))
+	fmt.Printf("🔑 API 密钥:  %s\n", maskAPIKey(cfg.GetAPIKey()))
 
 	modelList := cfg.GetModels()
 	fmt.Printf("\n🤖 支持模型 (%d 个):\n", len(modelList))

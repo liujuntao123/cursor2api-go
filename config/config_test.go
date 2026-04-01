@@ -98,6 +98,47 @@ func TestGetModels(t *testing.T) {
 	}
 }
 
+func TestSetBaseModels(t *testing.T) {
+	config := &Config{}
+
+	config.SetBaseModels([]string{
+		" google/gemini-3-flash ",
+		"",
+		"google/gemini-3-flash",
+		"openai/gpt-5",
+	})
+
+	expectedBaseModels := []string{
+		"google/gemini-3-flash",
+		"openai/gpt-5",
+	}
+	baseModels := config.GetBaseModels()
+	if len(baseModels) != len(expectedBaseModels) {
+		t.Fatalf("GetBaseModels() length = %v, want %v", len(baseModels), len(expectedBaseModels))
+	}
+	for i, model := range baseModels {
+		if model != expectedBaseModels[i] {
+			t.Fatalf("GetBaseModels()[%d] = %v, want %v", i, model, expectedBaseModels[i])
+		}
+	}
+
+	expectedModels := []string{
+		"google/gemini-3-flash",
+		"google/gemini-3-flash-thinking",
+		"openai/gpt-5",
+		"openai/gpt-5-thinking",
+	}
+	models := config.GetModels()
+	if len(models) != len(expectedModels) {
+		t.Fatalf("GetModels() length = %v, want %v", len(models), len(expectedModels))
+	}
+	for i, model := range models {
+		if model != expectedModels[i] {
+			t.Fatalf("GetModels()[%d] = %v, want %v", i, model, expectedModels[i])
+		}
+	}
+}
+
 func TestIsValidModel(t *testing.T) {
 	config := &Config{
 		Models: "claude-sonnet-4.6",
@@ -199,5 +240,55 @@ func TestValidate(t *testing.T) {
 				t.Errorf("validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestUpdateAPIKeyCreatesEnvFileAndUpdatesRuntimeValue(t *testing.T) {
+	tempDir := t.TempDir()
+	config := &Config{
+		APIKey:      "old-key",
+		EnvFilePath: tempDir + "/.env",
+	}
+
+	if err := config.UpdateAPIKey("new-key"); err != nil {
+		t.Fatalf("UpdateAPIKey() error = %v", err)
+	}
+
+	if got := config.GetAPIKey(); got != "new-key" {
+		t.Fatalf("GetAPIKey() = %v, want new-key", got)
+	}
+
+	data, err := os.ReadFile(config.EnvFilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", config.EnvFilePath, err)
+	}
+	if string(data) != "API_KEY=new-key\n" {
+		t.Fatalf("env file = %q, want %q", string(data), "API_KEY=new-key\n")
+	}
+}
+
+func TestUpdateAPIKeyReplacesExistingEnvValue(t *testing.T) {
+	tempDir := t.TempDir()
+	envPath := tempDir + "/.env"
+	if err := os.WriteFile(envPath, []byte("PORT=8002\nAPI_KEY=old-key\nDEBUG=false\n"), 0644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", envPath, err)
+	}
+
+	config := &Config{
+		APIKey:      "old-key",
+		EnvFilePath: envPath,
+	}
+
+	if err := config.UpdateAPIKey("rotated-key"); err != nil {
+		t.Fatalf("UpdateAPIKey() error = %v", err)
+	}
+
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", envPath, err)
+	}
+	expected := "PORT=8002\nAPI_KEY=rotated-key\nDEBUG=false\n"
+	if string(data) != expected {
+		t.Fatalf("env file = %q, want %q", string(data), expected)
 	}
 }

@@ -202,8 +202,17 @@ func TestBuildCursorRequestAllowsToolChoiceNoneWithoutTools(t *testing.T) {
 	if result.ParseConfig.TriggerSignal != "" {
 		t.Fatalf("TriggerSignal = %q, want empty for plain chat", result.ParseConfig.TriggerSignal)
 	}
-	if len(result.Payload.Messages) != 1 {
-		t.Fatalf("payload message count = %d, want 1", len(result.Payload.Messages))
+	if len(result.Payload.Messages) != 2 {
+		t.Fatalf("payload message count = %d, want 2 (system + user)", len(result.Payload.Messages))
+	}
+
+	systemText := result.Payload.Messages[0].Parts[0].Text
+	if strings.Contains(systemText, "<function_list>") {
+		t.Fatalf("plain chat system prompt should not include tool protocol, got: %s", systemText)
+	}
+
+	if result.Payload.Messages[1].Role != "user" {
+		t.Fatalf("payload second message role = %q, want user", result.Payload.Messages[1].Role)
 	}
 }
 

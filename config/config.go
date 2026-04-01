@@ -27,6 +27,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
@@ -44,6 +45,7 @@ type Config struct {
 	SystemPromptInject string `json:"system_prompt_inject"`
 	Timeout            int    `json:"timeout"`
 	MaxInputLength     int    `json:"max_input_length"`
+	EnvFilePath        string `json:"-"`
 
 	// 兼容性配置
 	// KILO_TOOL_STRICT=true 时：只要请求提供了 tools，就强制/强提示模型至少发起一次工具调用
@@ -53,6 +55,8 @@ type Config struct {
 	// Cursor相关配置
 	ScriptURL string `json:"script_url"`
 	FP        FP     `json:"fp"`
+
+	mu sync.RWMutex
 }
 
 // FP 指纹配置结构
@@ -64,20 +68,31 @@ type FP struct {
 
 // LoadConfig 加载配置
 func LoadConfig() (*Config, error) {
+	envFilePath := ".env"
 	// 尝试加载.env文件
 	if err := godotenv.Load(); err != nil {
 		logrus.Debug("No .env file found, using environment variables")
+	}
+	envFileValues, err := godotenv.Read(envFilePath)
+	if err != nil && !os.IsNotExist(err) {
+		logrus.WithError(err).Warn("Failed to read .env file directly, falling back to process environment")
+	}
+
+	apiKey := strings.TrimSpace(envFileValues["API_KEY"])
+	if apiKey == "" {
+		apiKey = getEnv("API_KEY", "0000")
 	}
 
 	config := &Config{
 		// 设置默认值
 		Port:               getEnvAsInt("PORT", 8002),
 		Debug:              getEnvAsBool("DEBUG", false),
-		APIKey:             getEnv("API_KEY", "0000"),
-		Models:             getEnv("MODELS", "anthropic/claude-sonnet-4.6,claude-sonnet-4-5-20250929,claude-sonnet-4-20250514,claude-3-5-sonnet-20241022"),
+		APIKey:             apiKey,
+		Models:             "",
 		SystemPromptInject: getEnv("SYSTEM_PROMPT_INJECT", ""),
 		Timeout:            getEnvAsInt("TIMEOUT", 60),
 		MaxInputLength:     getEnvAsInt("MAX_INPUT_LENGTH", 200000),
+		EnvFilePath:        envFilePath,
 		KiloToolStrict:     getEnvAsBool("KILO_TOOL_STRICT", false),
 		ScriptURL:          getEnv("SCRIPT_URL", "https://cursor.com/_next/static/chunks/pages/_app.js"),
 		FP: FP{
@@ -118,14 +133,77 @@ func (c *Config) validate() error {
 
 // GetBaseModels 获取基础模型列表
 func (c *Config) GetBaseModels() []string {
-	modelsList := strings.Split(c.Models, ",")
+	c.mu.RLock()
+	modelsValue := c.Models
+	c.mu.RUnlock()
+
+	modelsList := strings.Split(modelsValue, ",")
 	result := make([]string, 0, len(modelsList))
+	seen := make(map[string]struct{}, len(modelsList))
 	for _, model := range modelsList {
-		if trimmed := strings.TrimSpace(model); trimmed != "" {
-			result = append(result, trimmed)
+		trimmed := strings.TrimSpace(model)
+		if trimmed == "" {
+			continue
 		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
 	}
 	return result
+}
+
+// SetBaseModels 用启动时探测出的基础模型列表覆盖运行时配置
+func (c *Config) SetBaseModels(baseModels []string) {
+	normalized := make([]string, 0, len(baseModels))
+	seen := make(map[string]struct{}, len(baseModels))
+	for _, model := range baseModels {
+		trimmed := strings.TrimSpace(model)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	c.mu.Lock()
+	c.Models = strings.Join(normalized, ",")
+	c.mu.Unlock()
+}
+
+// GetAPIKey 返回当前运行时 API Key
+func (c *Config) GetAPIKey() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.APIKey
+}
+
+// UpdateAPIKey 更新当前运行时 API Key，并写回 .env 文件
+func (c *Config) UpdateAPIKey(newKey string) error {
+	newKey = strings.TrimSpace(newKey)
+	if newKey == "" {
+		return fmt.Errorf("API key cannot be empty")
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	envFilePath := strings.TrimSpace(c.EnvFilePath)
+	if envFilePath == "" {
+		envFilePath = ".env"
+	}
+	if err := writeEnvValue(envFilePath, "API_KEY", newKey); err != nil {
+		return fmt.Errorf("persist API key to %s: %w", envFilePath, err)
+	}
+
+	c.APIKey = newKey
+	if err := os.Setenv("API_KEY", newKey); err != nil {
+		logrus.WithError(err).Warn("Failed to update process API_KEY environment variable")
+	}
+	return nil
 }
 
 // GetModels 获取模型列表
@@ -146,15 +224,81 @@ func (c *Config) IsValidModel(model string) bool {
 
 // ToJSON 将配置序列化为JSON（用于调试）
 func (c *Config) ToJSON() string {
-	// 创建一个副本，隐藏敏感信息
-	safeCfg := *c
-	safeCfg.APIKey = "***"
+	c.mu.RLock()
+	safeCfg := struct {
+		Port               int    `json:"port"`
+		Debug              bool   `json:"debug"`
+		APIKey             string `json:"api_key"`
+		Models             string `json:"models"`
+		SystemPromptInject string `json:"system_prompt_inject"`
+		Timeout            int    `json:"timeout"`
+		MaxInputLength     int    `json:"max_input_length"`
+		KiloToolStrict     bool   `json:"kilo_tool_strict"`
+		ScriptURL          string `json:"script_url"`
+		FP                 FP     `json:"fp"`
+	}{
+		Port:               c.Port,
+		Debug:              c.Debug,
+		APIKey:             "***",
+		Models:             c.Models,
+		SystemPromptInject: c.SystemPromptInject,
+		Timeout:            c.Timeout,
+		MaxInputLength:     c.MaxInputLength,
+		KiloToolStrict:     c.KiloToolStrict,
+		ScriptURL:          c.ScriptURL,
+		FP:                 c.FP,
+	}
+	c.mu.RUnlock()
 
 	data, err := json.MarshalIndent(safeCfg, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("Error marshaling config: %v", err)
 	}
 	return string(data)
+}
+
+func writeEnvValue(path, key, value string) error {
+	formatted := key + "=" + formatEnvValue(value)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.WriteFile(path, []byte(formatted+"\n"), 0644)
+		}
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(line, key+"=") {
+			lines[i] = formatted
+			found = true
+		}
+	}
+
+	output := strings.Join(lines, "\n")
+	if found {
+		if !strings.HasSuffix(output, "\n") {
+			output += "\n"
+		}
+		return os.WriteFile(path, []byte(output), 0644)
+	}
+
+	if output != "" && !strings.HasSuffix(output, "\n") {
+		output += "\n"
+	}
+	output += formatted + "\n"
+	return os.WriteFile(path, []byte(output), 0644)
+}
+
+func formatEnvValue(value string) string {
+	if strings.ContainsAny(value, " \t#\"'\n\r") {
+		escaped := strings.ReplaceAll(value, `\`, `\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+		return `"` + escaped + `"`
+	}
+	return value
 }
 
 // 辅助函数

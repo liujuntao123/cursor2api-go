@@ -1,225 +1,211 @@
-# Cursor2API
+# cursor2api-go
 
 [English](README_EN.md) | 简体中文
 
-一个将 Cursor Web 转换为 OpenAI `chat/completions` 兼容 API 的 Go 服务。
+将 Cursor Web 转换为 OpenAI 兼容接口的 Go 服务，适合本地自建和二次集成。
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-orange.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
 
-## ✨ 特性
+## 概览
 
-- 🔄 **API 兼容**: 兼容 OpenAI `chat/completions` 接口
-- ⚡ **高性能**: 低延迟响应
-- 🔐 **安全认证**: 支持 API Key 认证
-- 🌐 **模型派生**: 自动暴露 `*-thinking` 模型
-- 🧰 **工具调用**: 支持 `tools` / `tool_choice` / `tool_calls`
-- 🛡️ **错误处理**: 完善的错误处理机制
-- 📊 **健康检查**: 内置健康检查接口
+`cursor2api-go` 提供以下能力：
 
-## 🖼️ 效果图
+- OpenAI 兼容的 `POST /v1/chat/completions`
+- OpenAI 兼容的 `GET /v1/models`
+- 启动时自动探测 Cursor Web 当前允许的基础模型
+- 自动公开每个基础模型对应的 `-thinking` 版本
+- 支持 `tools`、`tool_choice`、`tool_calls`
+- 内置 Web 控制台，可直接查看状态、模型和示例请求
+- 支持运行时热更新 API Key，并写回 `.env`
+
+## 最新功能
+
+- 启动即探测上游模型，不再依赖手工维护 `MODELS`
+- 根路径 `/` 现在是可交互控制台，不是静态占位页
+- 新增 `POST /v1/admin/api-key`，认证通过后可立即切换 API Key
+- `Authorization` 校验改为读取运行时配置，热更新后即时生效
+- 针对 Kilo Code 一类“必须用工具”的编排器增加兼容模式
+- 非流式场景下，若本轮必须调用工具却没有产出 `tool_calls`，会自动补救重试 1 次
+
+## 效果图
 
 ![首页预览](docs/images/home.png)
 ![调用效果预览 1](docs/images/play1.png)
 ![调用效果预览 2](docs/images/play2.png)
 
-## 🤖 支持的模型
+## 接口一览
 
-- **Anthropic Claude**: `claude-sonnet-4.6`
-- **自动派生 thinking 模型**: `claude-sonnet-4.6-thinking`
+| 路径 | 方法 | 鉴权 | 说明 |
+| --- | --- | --- | --- |
+| `/` | `GET` | 否 | Web 控制台，动态显示健康状态、模型列表和示例命令 |
+| `/health` | `GET` | 否 | 健康检查 |
+| `/v1/models` | `GET` | 否 | 返回当前启动时探测到的模型列表 |
+| `/v1/chat/completions` | `POST` | 是 | OpenAI 兼容聊天接口，支持流式、非流式、tools |
+| `/v1/admin/api-key` | `POST` | 是 | 用当前 API Key 认证后，更新并持久化新的 API Key |
 
-## 🚀 快速开始
+## 模型策略
+
+- 服务启动时会主动向上游发起探测，请以 `GET /v1/models` 结果为准
+- 每个基础模型都会自动公开一个 `-thinking` 版本
+- `-thinking` 是公开模型别名，实际仍映射回对应基础模型请求上游
+- thinking 只在内部桥接协议中使用，不会作为独立 reasoning 字段暴露给客户端
+
+示例：
+
+- `google/gemini-3-flash`
+- `google/gemini-3-flash-thinking`
+
+上游允许模型随时可能变化，README 中的模型名只能作为示例，不能当成固定清单。
+
+## 快速开始
 
 ### 环境要求
 
 - Go 1.24+
-- Node.js 18+ (用于 JavaScript 执行)
+- Node.js 18+
 
-### 本地运行方式
+### 本地运行
 
-#### 方法一：直接运行（推荐用于开发）
-
-**Linux/macOS**:
 ```bash
-git clone https://github.com/libaxuan/cursor2api-go.git
+git clone https://github.com/<your-username>/cursor2api-go.git
 cd cursor2api-go
+cp .env.example .env
+```
+
+至少修改以下配置：
+
+```dotenv
+API_KEY=replace-with-your-secret
+DEBUG=false
+```
+
+启动方式任选其一：
+
+```bash
+go run .
+```
+
+```bash
+go build -o cursor2api-go
+./cursor2api-go
+```
+
+```bash
 chmod +x start.sh
 ./start.sh
 ```
 
-**Windows**:
-```batch
-# 双击运行或在 cmd 中执行
-start-go.bat
+Windows 可直接使用：
 
-# 或在 Git Bash / Windows Terminal 中
-./start-go-utf8.bat
-```
+- `start-go.bat`
+- `start-go-utf8.bat`
 
-#### 方法二：手动编译运行
+服务默认监听 `http://localhost:8002`。
+
+### Docker Compose
 
 ```bash
-# 克隆项目
-git clone https://github.com/libaxuan/cursor2api-go.git
-cd cursor2api-go
-
-# 下载依赖
-go mod tidy
-
-# 编译
-go build -o cursor2api-go
-
-# 运行
-./cursor2api-go
+docker compose up -d --build
 ```
 
-#### 方法三：使用 go run
+查看日志：
 
 ```bash
-git clone https://github.com/libaxuan/cursor2api-go.git
-cd cursor2api-go
-go run main.go
+docker compose logs -f
 ```
 
-服务将在 `http://localhost:8002` 启动
+### Docker
 
-## 🚀 服务器部署方式
-
-### Docker 部署
-
-1. **构建镜像**:
 ```bash
-# 构建镜像
 docker build -t cursor2api-go .
-```
-
-2. **运行容器**:
-```bash
-# 运行容器（推荐）
 docker run -d \
   --name cursor2api-go \
   --restart unless-stopped \
   -p 8002:8002 \
-  -e API_KEY=your-secret-key \
-  -e DEBUG=false \
+  -e API_KEY=replace-with-your-secret \
   cursor2api-go
-
-# 或者使用默认配置运行
-docker run -d --name cursor2api-go --restart unless-stopped -p 8002:8002 cursor2api-go
 ```
 
-### Docker Compose 部署（推荐用于生产环境）
+## 配置说明
 
-1. **使用 docker-compose.yml**:
-```bash
-# 启动服务
-docker-compose up -d
+### 关键环境变量
 
-# 停止服务
-docker-compose down
+| 变量名 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PORT` | `8002` | 服务端口 |
+| `DEBUG` | `false` | 调试模式，开启后输出更详细日志 |
+| `API_KEY` | `0000` | API 认证密钥，生产环境必须修改 |
+| `SYSTEM_PROMPT_INJECT` | 空 | 追加注入到系统提示词 |
+| `TIMEOUT` | `60` | 上游请求超时时间，单位秒 |
+| `MAX_INPUT_LENGTH` | `200000` | 输入消息总长度上限，超出后会裁剪旧消息 |
+| `KILO_TOOL_STRICT` | `false` | 当提供 `tools` 且 `tool_choice=auto` 时，强制按“必须用工具”处理 |
+| `USER_AGENT` | 内置默认值 | 浏览器指纹字段，可按需覆盖 |
+| `UNMASKED_VENDOR_WEBGL` | 内置默认值 | 浏览器指纹字段，可按需覆盖 |
+| `UNMASKED_RENDERER_WEBGL` | 内置默认值 | 浏览器指纹字段，可按需覆盖 |
+| `SCRIPT_URL` | 内置默认值 | 浏览器环境仿真脚本占位配置，通常保持默认即可 |
 
-# 查看日志
-docker-compose logs -f
-```
+说明：
 
-2. **自定义配置**:
-修改 `docker-compose.yml` 文件中的环境变量以满足您的需求：
-- 修改 `API_KEY` 为安全的密钥
-- 根据需要调整 `MODELS`、`TIMEOUT` 等配置
-- 更改暴露的端口
+- `MODELS` 已移除，模型列表由服务启动时自动探测
+- `.env.example` 是推荐起点，运行时 API Key 更新也会回写到 `.env`
 
-### 系统服务部署（Linux）
+## 使用示例
 
-1. **编译并移动二进制文件**:
-```bash
-go build -o cursor2api-go
-sudo mv cursor2api-go /usr/local/bin/
-sudo chmod +x /usr/local/bin/cursor2api-go
-```
-
-2. **创建系统服务文件** `/etc/systemd/system/cursor2api-go.service`:
-```ini
-[Unit]
-Description=Cursor2API Service
-After=network.target
-
-[Service]
-Type=simple
-User=your-user
-WorkingDirectory=/home/your-user/cursor2api-go
-ExecStart=/usr/local/bin/cursor2api-go
-Restart=always
-Environment=API_KEY=your-secret-key
-Environment=PORT=8002
-
-[Install]
-WantedBy=multi-user.target
-```
-
-3. **启动服务**:
-```bash
-# 重载 systemd 配置
-sudo systemctl daemon-reload
-
-# 启用开机自启
-sudo systemctl enable cursor2api-go
-
-# 启动服务
-sudo systemctl start cursor2api-go
-
-# 查看状态
-sudo systemctl status cursor2api-go
-```
-
-## 📡 API 使用
-
-### 获取模型列表
+### 1. 获取模型列表
 
 ```bash
-curl -H "Authorization: Bearer 0000" http://localhost:8002/v1/models
+curl http://localhost:8002/v1/models
 ```
 
-### 非流式聊天
+### 2. 非流式聊天
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6",
-    "messages": [{"role": "user", "content": "Hello!"}],
+    "model": "google/gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "reply with exactly OK"}
+    ],
     "stream": false
   }'
 ```
 
-### 流式聊天
+### 3. 流式聊天
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6",
-    "messages": [{"role": "user", "content": "Hello!"}],
+    "model": "google/gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "write a haiku about Go"}
+    ],
     "stream": true
   }'
 ```
 
-### 带工具的请求
+### 4. tools 调用
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6",
-    "messages": [{"role": "user", "content": "帮我查询北京天气"}],
+    "model": "google/gemini-3-flash",
+    "stream": false,
+    "messages": [
+      {"role": "user", "content": "帮我查询北京天气"}
+    ],
     "tools": [
       {
         "type": "function",
         "function": {
           "name": "get_weather",
-          "description": "获取实时天气",
+          "description": "获取天气",
           "parameters": {
             "type": "object",
             "properties": {
@@ -233,165 +219,116 @@ curl -X POST http://localhost:8002/v1/chat/completions \
   }'
 ```
 
-### `-thinking` 模型
+非流式返回会兼容 OpenAI 的：
+
+- `message.tool_calls`
+- `finish_reason = "tool_calls"`
+
+流式返回会兼容：
+
+- `delta.tool_calls`
+- 末尾 `finish_reason = "tool_calls"`
+
+### 5. `-thinking` 模型
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6-thinking",
-    "messages": [{"role": "user", "content": "先思考再决定要不要用工具"}],
-    "tools": [
-      {
-        "type": "function",
-        "function": {
-          "name": "lookup",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "q": {"type": "string"}
-            },
-            "required": ["q"]
-          }
-        }
-      }
-    ],
-    "stream": true
+    "model": "google/gemini-3-flash-thinking",
+    "stream": true,
+    "messages": [
+      {"role": "user", "content": "先思考，再决定是否需要工具"}
+    ]
   }'
 ```
 
-### 在第三方应用中使用
+### 6. 热更新 API Key
 
-在任何支持自定义 OpenAI API 的应用中（如 ChatGPT Next Web、Lobe Chat 等）：
-
-1. **API 地址**: `http://localhost:8002`
-2. **API 密钥**: `0000`（或自定义）
-3. **模型**: 选择支持的模型之一；基础模型会自动有对应的 `-thinking` 版本
-
-## ⚙️ 配置说明
-
-### 环境变量
-
-| 变量名 | 默认值 | 说明 |
-|--------|--------|------|
-| `PORT` | `8002` | 服务器端口 |
-| `DEBUG` | `false` | 调试模式（启用后显示详细日志和路由信息） |
-| `API_KEY` | `0000` | API 认证密钥 |
-| `MODELS` | `claude-sonnet-4.6` | 基础模型列表（逗号分隔），服务会自动追加对应的 `-thinking` 公开模型 |
-| `TIMEOUT` | `60` | 请求超时时间（秒） |
-| `KILO_TOOL_STRICT` | `false` | Kilo Code 兼容开关：当请求提供 `tools` 且 `tool_choice=auto` 时，将其提升为“必须至少调用一次工具” |
-
-### 调试模式
-
-默认情况下，服务以简洁模式运行。如需启用详细日志：
-
-**方式 1**: 修改 `.env` 文件
 ```bash
-DEBUG=true
+curl -X POST http://localhost:8002/v1/admin/api-key \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer 0000" \
+  -d '{
+    "api_key": "new-secret-key"
+  }'
 ```
 
-**方式 2**: 使用环境变量
-```bash
-DEBUG=true ./cursor2api-go
+更新成功后：
+
+- 当前进程立即切换到新的 API Key
+- `.env` 中的 `API_KEY` 会被同步更新
+- 后续请求必须使用新 key 认证
+
+## Web 控制台
+
+访问根路径 `/` 可直接使用内置控制台：
+
+- 查看服务健康状态
+- 查看自动探测到的模型
+- 复制示例 `curl`
+- 在页面里直接更新 API Key
+
+控制台中的示例代码会自动使用当前页面访问地址和已输入的 API Key。
+
+## 第三方应用接入
+
+在支持自定义 OpenAI API 的客户端中，按以下方式配置：
+
+1. Base URL: `http://localhost:8002`
+2. API Key: 你当前配置的 `API_KEY`
+3. Model: 先调用 `GET /v1/models`，再从返回列表中选择
+
+如果你的上层编排器要求“提供了 tools 就必须真正发起工具调用”，建议启用：
+
+```dotenv
+KILO_TOOL_STRICT=true
 ```
 
-调试模式会显示：
-- 详细的 GIN 路由信息
-- 每个请求的详细日志
-- x-is-human token 信息
-- 浏览器指纹配置
+## 行为说明
 
-### 故障排除
+- tools 支持通过内部 prompt/parse bridge 实现，不是 Cursor 原生工具调用
+- `tool_choice` 支持 `auto`、`none`、`required` 和指定函数对象
+- 非流式模式下，如果请求被判定为“必须用工具”但首次没有工具调用，会自动重试 1 次
+- 为提高稳定性，服务会动态生成浏览器指纹；遇到 403 时会刷新指纹并重试
+- 启动横幅会打印当前端口、文档地址、健康检查和模型列表
 
-遇到问题？查看 **[故障排除指南](TROUBLESHOOTING.md)** 了解常见问题的解决方案，包括：
-- 403 Access Denied 错误
-- Token 获取失败
-- 连接超时
-- Cloudflare 拦截
+## 当前不支持
 
-## 🧩 与 Kilo Code / Agent 编排器的兼容性
+- Anthropic `/v1/messages`
+- MCP 编排
+- 原生上游 tool execution
+- 对外暴露独立 reasoning/thinking 字段
+- 通过 API 直接执行本地文件系统或系统命令
 
-部分编排器会在“提供了 tools”时强制模型必须产出工具调用，否则报类似 `MODEL_NO_TOOLS_USED` 的错误。为改善这一类兼容问题：
+## 故障排除
 
-- **建议**：在 `.env` 中启用 `KILO_TOOL_STRICT=true`
-- **非流式补救**：当请求提供 `tools` 且被判定为“必须用工具”（`tool_choice=required/指定函数`，或启用 `KILO_TOOL_STRICT`）时，如果本轮没有产出 `tool_calls`，服务会自动 **重试 1 次**（仅非流式；流式不重试）
+常见问题见：
 
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- [docs/API_CAPABILITIES.md](docs/API_CAPABILITIES.md)
+- [docs/DYNAMIC_HEADERS.md](docs/DYNAMIC_HEADERS.md)
 
-### Windows 启动脚本说明
-
-项目提供两个 Windows 启动脚本：
-
-- **`start-go.bat`** (推荐): GBK 编码，完美兼容 Windows cmd.exe
-- **`start-go-utf8.bat`**: UTF-8 编码，适用于 Git Bash、PowerShell、Windows Terminal
-
-两个脚本功能完全相同，仅显示样式不同。如遇乱码请使用 `start-go.bat`。
-
-## 🧪 开发
-
-### 运行测试
+## 开发
 
 ```bash
-# 运行现有测试
 go test ./...
 ```
 
-### 构建项目
-
 ```bash
-# 构建可执行文件
-go build -o cursor2api-go
-
-# 交叉编译 (例如 Linux)
-GOOS=linux GOARCH=amd64 go build -o cursor2api-go-linux
+go build ./...
 ```
 
-## 📁 项目结构
+## 许可证
 
-```
-cursor2api-go/
-├── main.go              # 主程序入口 (Go 版本)
-├── config/              # 配置管理 (Go 版本)
-├── handlers/            # HTTP 处理器 (Go 版本)
-├── services/            # 业务服务层 (Go 版本)
-├── models/              # 数据模型 (Go 版本)
-├── utils/               # 工具函数 (Go 版本)
-├── middleware/          # 中间件 (Go 版本)
-├── jscode/              # JavaScript 代码 (Go 版本)
-├── static/              # 静态文件 (Go 版本)
-├── start.sh             # Linux/macOS 启动脚本
-├── start-go.bat         # Windows 启动脚本 (GBK)
-├── start-go-utf8.bat    # Windows 启动脚本 (UTF-8)
+本项目采用 [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/)。
 
-└── README.md            # 项目说明
-```
+- 允许非商业使用
+- 不允许商业使用
 
-## 🤝 贡献指南
+详情见 [LICENSE](LICENSE)。
 
-欢迎贡献代码！请遵循以下步骤：
+## 免责声明
 
-1. Fork 本仓库
-2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'feat: Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
-
-### 代码规范
-
-- 遵循 [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
-- 使用 `gofmt` 格式化代码
-- 使用 `go vet` 检查代码
-- 提交信息遵循 [Conventional Commits](https://conventionalcommits.org/) 规范
-
-## 📄 许可证
-
-本项目采用 [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) 许可证。
-禁止商业用途。查看 [LICENSE](LICENSE) 文件了解详情。
-
-## ⚠️ 免责声明
-
-使用本项目时请遵守相关服务的使用条款。
-
----
-
-⭐ 如果这个项目对您有帮助，请给我们一个 Star！
+请自行评估并遵守 Cursor 及相关上游服务的使用条款与风险。

@@ -28,6 +28,7 @@ import (
 	"cursor2api-go/utils"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +40,10 @@ type Handler struct {
 	config        *config.Config
 	cursorService *services.CursorService
 	docsContent   []byte
+}
+
+type updateAPIKeyRequest struct {
+	APIKey string `json:"api_key"`
 }
 
 // NewHandler 创建新的处理器
@@ -144,7 +149,7 @@ func NewHandler(cfg *config.Config) *Handler {
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6-thinking",
+    "model": "google/gemini-3-flash-thinking",
     "messages": [
       {"role": "user", "content": "Plan first, then decide whether a tool is needed."}
     ],
@@ -260,6 +265,43 @@ func (h *Handler) ChatCompletions(c *gin.Context) {
 	}
 }
 
+// UpdateAPIKey 更新运行时 API Key，并持久化到 .env
+func (h *Handler) UpdateAPIKey(c *gin.Context) {
+	var request updateAPIKeyRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, models.NewErrorResponse(
+			"Invalid request format",
+			"invalid_request_error",
+			"invalid_json",
+		))
+		return
+	}
+
+	if strings.TrimSpace(request.APIKey) == "" {
+		c.JSON(http.StatusBadRequest, models.NewErrorResponse(
+			"API key cannot be empty",
+			"invalid_request_error",
+			"missing_api_key",
+		))
+		return
+	}
+
+	if err := h.config.UpdateAPIKey(request.APIKey); err != nil {
+		logrus.WithError(err).Error("Failed to update API key")
+		c.JSON(http.StatusInternalServerError, models.NewErrorResponse(
+			"Failed to persist API key",
+			"internal_error",
+			"api_key_update_failed",
+		))
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "API key updated",
+		"api_key_masked": maskAPIKeyValue(h.config.GetAPIKey()),
+	})
+}
+
 // ServeDocs 服务API文档页面
 func (h *Handler) ServeDocs(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", h.docsContent)
@@ -272,4 +314,11 @@ func (h *Handler) Health(c *gin.Context) {
 		"timestamp": time.Now().Unix(),
 		"version":   "go-1.0.0",
 	})
+}
+
+func maskAPIKeyValue(key string) string {
+	if len(key) <= 4 {
+		return "****"
+	}
+	return key[:4] + "****"
 }

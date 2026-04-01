@@ -43,7 +43,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const cursorAPIURL = "https://cursor.com/api/chat"
+var cursorAPIURL = "https://cursor.com/api/chat"
 
 // CursorService handles interactions with Cursor API.
 type CursorService struct {

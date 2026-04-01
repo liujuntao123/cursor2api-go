@@ -13,8 +13,7 @@ services:
       - DEBUG=false
 
       # API 配置（⚠️ 生产环境请修改默认密钥）
-      - API_KEY=0000
-      - MODELS=claude-sonnet-4.6
+      - API_KEY=0987654321
       - SYSTEM_PROMPT_INJECT=
 
       # 请求配置

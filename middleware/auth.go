@@ -21,19 +21,19 @@
 package middleware
 
 import (
+	"cursor2api-go/config"
 	"cursor2api-go/models"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 // AuthRequired 认证中间件
-func AuthRequired() gin.HandlerFunc {
+func AuthRequired(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
-		
+
 		if authHeader == "" {
 			errorResponse := models.NewErrorResponse(
 				"Missing authorization header",
@@ -57,7 +57,10 @@ func AuthRequired() gin.HandlerFunc {
 		}
 
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		expectedToken := os.Getenv("API_KEY")
+		expectedToken := ""
+		if cfg != nil {
+			expectedToken = cfg.GetAPIKey()
+		}
 		if expectedToken == "" {
 			expectedToken = "0000" // 默认值
 		}

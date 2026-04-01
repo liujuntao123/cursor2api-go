@@ -1,228 +1,211 @@
-# Cursor2API
+# cursor2api-go
 
 English | [简体中文](README.md)
 
-A Go service that converts Cursor Web into an OpenAI `chat/completions` compatible API for local deployment.
+A Go service that turns Cursor Web into an OpenAI-compatible API for local deployment and integration.
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-blue.svg)](https://golang.org)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-orange.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
 
-## ✨ Features
+## Overview
 
-- ✅ Compatible with OpenAI `chat/completions`
-- ✅ Supports streaming and non-streaming responses
-- ✅ High-performance Go implementation
-- ✅ Automatic Cursor Web authentication
-- ✅ Clean web interface
-- ✅ Supports `tools`, `tool_choice`, and `tool_calls`
-- ✅ Automatically derives `-thinking` public models
-- ❌ Does not yet support Anthropic `/v1/messages` or MCP
+`cursor2api-go` provides:
 
-## 🖼️ Screenshots
+- OpenAI-compatible `POST /v1/chat/completions`
+- OpenAI-compatible `GET /v1/models`
+- Startup-time discovery of the currently allowed Cursor Web base models
+- Automatic public `-thinking` variants for each base model
+- Support for `tools`, `tool_choice`, and `tool_calls`
+- A built-in web console at `/`
+- Runtime API key rotation with `.env` persistence
 
-Drop images into `docs/images/` and the README will render them.
+## What's New
+
+- Model discovery now happens at startup, so `MODELS` is no longer manually configured
+- `/` is now an interactive console instead of a placeholder page
+- Added `POST /v1/admin/api-key` for authenticated API key rotation
+- Auth now reads the runtime config, so a rotated key takes effect immediately
+- Added better compatibility for tool-enforcing orchestrators such as Kilo Code
+- Non-stream requests auto-retry once when a tool call is required but the first pass returns none
+
+## Screenshots
 
 ![Home preview](docs/images/home.png)
 ![Tool calls preview 1](docs/images/play1.png)
 ![Tool calls preview 2](docs/images/play2.png)
 
-## 🤖 Supported Models
+## Endpoints
 
-- **Anthropic Claude**: `claude-sonnet-4.6`
-- **Derived thinking model**: `claude-sonnet-4.6-thinking`
+| Path | Method | Auth | Description |
+| --- | --- | --- | --- |
+| `/` | `GET` | No | Web console with health, models, and sample commands |
+| `/health` | `GET` | No | Health check |
+| `/v1/models` | `GET` | No | Returns the models discovered during startup |
+| `/v1/chat/completions` | `POST` | Yes | OpenAI-compatible chat endpoint with stream/non-stream/tool support |
+| `/v1/admin/api-key` | `POST` | Yes | Updates and persists a new API key after authenticating with the current one |
 
-## 🚀 Quick Start
+## Model Strategy
+
+- The service probes upstream during startup; treat `GET /v1/models` as the source of truth
+- Every base model automatically exposes a matching public `-thinking` model
+- A `-thinking` model maps back to the same upstream base model
+- Thinking is an internal bridge capability; it is not exposed as a separate reasoning field
+
+Example model names:
+
+- `google/gemini-3-flash`
+- `google/gemini-3-flash-thinking`
+
+Upstream availability can change at any time, so model names in the README are examples, not a fixed contract.
+
+## Quick Start
 
 ### Requirements
 
 - Go 1.24+
-- Node.js 18+ (for JavaScript execution)
+- Node.js 18+
 
-### Local Running Methods
+### Local Run
 
-#### Method 1: Direct Run (Recommended for development)
-
-**Linux/macOS**:
 ```bash
-git clone https://github.com/libaxuan/cursor2api-go.git
+git clone https://github.com/<your-username>/cursor2api-go.git
 cd cursor2api-go
+cp .env.example .env
+```
+
+At minimum, update:
+
+```dotenv
+API_KEY=replace-with-your-secret
+DEBUG=false
+```
+
+Start the service with any of the following:
+
+```bash
+go run .
+```
+
+```bash
+go build -o cursor2api-go
+./cursor2api-go
+```
+
+```bash
 chmod +x start.sh
 ./start.sh
 ```
 
-**Windows**:
-```batch
-# Double-click or run in cmd
-start-go.bat
+On Windows, you can use:
 
-# Or in Git Bash / Windows Terminal
-./start-go-utf8.bat
-```
+- `start-go.bat`
+- `start-go-utf8.bat`
 
-#### Method 2: Manual Compile and Run
+The service listens on `http://localhost:8002` by default.
+
+### Docker Compose
 
 ```bash
-# Clone the project
-git clone https://github.com/libaxuan/cursor2api-go.git
-cd cursor2api-go
-
-# Download dependencies
-go mod tidy
-
-# Build
-go build -o cursor2api-go
-
-# Run
-./cursor2api-go
+docker compose up -d --build
 ```
 
-#### Method 3: Using go run
+Logs:
 
 ```bash
-git clone https://github.com/libaxuan/cursor2api-go.git
-cd cursor2api-go
-go run main.go
+docker compose logs -f
 ```
 
-The service will start at `http://localhost:8002`
+### Docker
 
-## 🚀 Server Deployment Methods
-
-### Docker Deployment
-
-1. **Build Image**:
 ```bash
-# Build image
 docker build -t cursor2api-go .
-```
-
-2. **Run Container**:
-```bash
-# Run container (recommended)
 docker run -d \
   --name cursor2api-go \
   --restart unless-stopped \
   -p 8002:8002 \
-  -e API_KEY=your-secret-key \
-  -e DEBUG=false \
+  -e API_KEY=replace-with-your-secret \
   cursor2api-go
-
-# Or run with default configuration
-docker run -d --name cursor2api-go --restart unless-stopped -p 8002:8002 cursor2api-go
 ```
 
-### Docker Compose Deployment (Recommended for production)
+## Configuration
 
-1. **Using docker-compose.yml**:
-```bash
-# Start service
-docker-compose up -d
+### Key Environment Variables
 
-# Stop service
-docker-compose down
+| Variable | Default | Description |
+| --- | --- | --- |
+| `PORT` | `8002` | Service port |
+| `DEBUG` | `false` | Enables detailed logging |
+| `API_KEY` | `0000` | API auth key; change this in production |
+| `SYSTEM_PROMPT_INJECT` | empty | Extra system prompt text to inject |
+| `TIMEOUT` | `60` | Upstream timeout in seconds |
+| `MAX_INPUT_LENGTH` | `200000` | Max combined input length before old messages are trimmed |
+| `KILO_TOOL_STRICT` | `false` | Treat `tools + tool_choice=auto` as "tool use required" |
+| `USER_AGENT` | built-in default | Browser fingerprint override |
+| `UNMASKED_VENDOR_WEBGL` | built-in default | Browser fingerprint override |
+| `UNMASKED_RENDERER_WEBGL` | built-in default | Browser fingerprint override |
+| `SCRIPT_URL` | built-in default | Browser environment script placeholder; usually keep default |
 
-# View logs
-docker-compose logs -f
-```
+Notes:
 
-2. **Custom Configuration**:
-Modify the environment variables in the `docker-compose.yml` file to meet your needs:
-- Change `API_KEY` to a secure key
-- Adjust `MODELS`, `TIMEOUT`, and other configurations as needed
-- Change the exposed port
+- `MODELS` has been removed from configuration
+- The runtime API key update endpoint also writes the new value back to `.env`
 
-### System Service Deployment (Linux)
+## Usage Examples
 
-1. **Compile and Move Binary**:
-```bash
-go build -o cursor2api-go
-sudo mv cursor2api-go /usr/local/bin/
-sudo chmod +x /usr/local/bin/cursor2api-go
-```
-
-2. **Create System Service File** `/etc/systemd/system/cursor2api-go.service`:
-```ini
-[Unit]
-Description=Cursor2API Service
-After=network.target
-
-[Service]
-Type=simple
-User=your-user
-WorkingDirectory=/home/your-user/cursor2api-go
-ExecStart=/usr/local/bin/cursor2api-go
-Restart=always
-Environment=API_KEY=your-secret-key
-Environment=PORT=8002
-
-[Install]
-WantedBy=multi-user.target
-```
-
-3. **Start Service**:
-```bash
-# Reload systemd configuration
-sudo systemctl daemon-reload
-
-# Enable auto-start on boot
-sudo systemctl enable cursor2api-go
-
-# Start service
-sudo systemctl start cursor2api-go
-
-# Check status
-sudo systemctl status cursor2api-go
-```
-
-## 📡 API Usage
-
-### List Models
+### 1. List models
 
 ```bash
-curl -H "Authorization: Bearer 0000" http://localhost:8002/v1/models
+curl http://localhost:8002/v1/models
 ```
 
-### Non-Streaming Chat
+### 2. Non-stream chat
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6",
-    "messages": [{"role": "user", "content": "Hello!"}],
+    "model": "google/gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "reply with exactly OK"}
+    ],
     "stream": false
   }'
 ```
 
-### Streaming Chat
+### 3. Stream chat
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6",
-    "messages": [{"role": "user", "content": "Hello!"}],
+    "model": "google/gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "write a haiku about Go"}
+    ],
     "stream": true
   }'
 ```
 
-### Tool Request
+### 4. Tool call request
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6",
-    "messages": [{"role": "user", "content": "Check the weather in Beijing"}],
+    "model": "google/gemini-3-flash",
+    "stream": false,
+    "messages": [
+      {"role": "user", "content": "Check the weather in Beijing"}
+    ],
     "tools": [
       {
         "type": "function",
         "function": {
           "name": "get_weather",
-          "description": "Get current weather",
+          "description": "Get weather",
           "parameters": {
             "type": "object",
             "properties": {
@@ -236,165 +219,116 @@ curl -X POST http://localhost:8002/v1/chat/completions \
   }'
 ```
 
-### `-thinking` Model
+Non-stream responses expose:
+
+- `message.tool_calls`
+- `finish_reason = "tool_calls"`
+
+Stream responses expose:
+
+- `delta.tool_calls`
+- a final `finish_reason = "tool_calls"`
+
+### 5. `-thinking` model
 
 ```bash
 curl -X POST http://localhost:8002/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer 0000" \
   -d '{
-    "model": "claude-sonnet-4.6-thinking",
-    "messages": [{"role": "user", "content": "Think first, then decide whether a tool is needed"}],
-    "tools": [
-      {
-        "type": "function",
-        "function": {
-          "name": "lookup",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "q": {"type": "string"}
-            },
-            "required": ["q"]
-          }
-        }
-      }
-    ],
-    "stream": true
+    "model": "google/gemini-3-flash-thinking",
+    "stream": true,
+    "messages": [
+      {"role": "user", "content": "Think first, then decide whether a tool is needed"}
+    ]
   }'
 ```
 
-### Use in Third-Party Apps
+### 6. Rotate the API key
 
-In any app that supports custom OpenAI API (e.g., ChatGPT Next Web, Lobe Chat):
-
-1. **API URL**: `http://localhost:8002`
-2. **API Key**: `0000` (or custom)
-3. **Model**: Choose a supported base model or its automatically derived `-thinking` variant
-
-## ⚙️ Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `8002` | Server port |
-| `DEBUG` | `false` | Debug mode (shows detailed logs and route info when enabled) |
-| `API_KEY` | `0000` | API authentication key |
-| `MODELS` | `claude-sonnet-4.6` | Base model list (comma-separated); the service automatically exposes matching `-thinking` public models |
-| `TIMEOUT` | `60` | Request timeout (seconds) |
-| `KILO_TOOL_STRICT` | `false` | Kilo Code compatibility: if `tools` are provided and `tool_choice=auto`, treat it as “tool use required” |
-
-### Debug Mode
-
-By default, the service runs in clean mode. To enable detailed logging:
-
-**Option 1**: Modify `.env` file
 ```bash
-DEBUG=true
+curl -X POST http://localhost:8002/v1/admin/api-key \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer 0000" \
+  -d '{
+    "api_key": "new-secret-key"
+  }'
 ```
 
-**Option 2**: Use environment variable
-```bash
-DEBUG=true ./cursor2api-go
+After success:
+
+- The running process immediately switches to the new key
+- `.env` is updated
+- All subsequent authenticated requests must use the new key
+
+## Web Console
+
+Visit `/` to use the built-in console:
+
+- check service health
+- inspect discovered models
+- copy ready-to-run `curl` commands
+- rotate the API key in the browser
+
+The example commands automatically use the current origin and the API key entered on the page.
+
+## Third-Party Client Setup
+
+For any client that supports a custom OpenAI API:
+
+1. Base URL: `http://localhost:8002`
+2. API Key: your current `API_KEY`
+3. Model: fetch `GET /v1/models` first, then choose from the returned list
+
+If your orchestrator requires an actual tool call whenever tools are present, enable:
+
+```dotenv
+KILO_TOOL_STRICT=true
 ```
 
-Debug mode displays:
-- Detailed GIN route information
-- Verbose request logs
-- x-is-human token details
-- Browser fingerprint configuration
+## Behavior Notes
 
-### Troubleshooting
+- Tool support is implemented through an internal prompt/parser bridge, not native Cursor tool execution
+- `tool_choice` supports `auto`, `none`, `required`, and function-object targeting
+- In non-stream mode, requests that require a tool call get one retry if the first attempt returns no tool calls
+- The service uses dynamic browser fingerprints and refreshes them on 403 retries
+- Startup output prints the active port, docs URL, health URL, and detected models
 
-Having issues? Check the **[Troubleshooting Guide](TROUBLESHOOTING.md)** for solutions to common problems, including:
-- 403 Access Denied errors
-- Token fetch failures
-- Connection timeouts
-- Cloudflare blocking
+## Not Supported
 
-## 🧩 Kilo Code / Agent Orchestrator Compatibility
+- Anthropic `/v1/messages`
+- MCP orchestration
+- Native upstream tool execution
+- Exposed reasoning/thinking response fields
+- Direct local filesystem or OS command execution through the API
 
-Some orchestrators enforce “must use tools” and may throw errors like `MODEL_NO_TOOLS_USED` when a response contains no tool call.
+## Troubleshooting
 
-- **Recommended**: set `KILO_TOOL_STRICT=true` in `.env`
-- **Non-stream safety net**: if tools are provided and tool use is required (`tool_choice=required/function`, or `KILO_TOOL_STRICT`), but the first attempt produces no `tool_calls`, the server automatically retries once (non-stream only)
+See:
 
+- [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- [docs/API_CAPABILITIES.md](docs/API_CAPABILITIES.md)
+- [docs/DYNAMIC_HEADERS.md](docs/DYNAMIC_HEADERS.md)
 
-### Windows Startup Scripts
-
-Two Windows startup scripts are provided:
-
-- **`start-go.bat`** (Recommended): GBK encoding, perfect compatibility with Windows cmd.exe
-- **`start-go-utf8.bat`**: UTF-8 encoding, for Git Bash, PowerShell, Windows Terminal
-
-Both scripts have identical functionality, only display styles differ. Use `start-go.bat` if you encounter encoding issues.
-
-## 🧪 Development
-
-### Running Tests
+## Development
 
 ```bash
-# Run existing tests
 go test ./...
 ```
 
-### Building
-
 ```bash
-# Build executable
-go build -o cursor2api-go
-
-# Cross-compile (e.g., for Linux)
-GOOS=linux GOARCH=amd64 go build -o cursor2api-go-linux
+go build ./...
 ```
 
-## 📁 Project Structure
+## License
 
-```
-cursor2api-go/
-├── main.go              # Main entry point (Go version)
-├── config/              # Configuration management (Go version)
-├── handlers/            # HTTP handlers (Go version)
-├── services/            # Business service layer (Go version)
-├── models/              # Data models (Go version)
-├── utils/               # Utility functions (Go version)
-├── middleware/          # Middleware (Go version)
-├── jscode/              # JavaScript code (Go version)
-├── static/              # Static files (Go version)
-├── start.sh             # Linux/macOS startup script
-├── start-go.bat         # Windows startup script (GBK)
-├── start-go-utf8.bat    # Windows startup script (UTF-8)
+This project uses [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
 
-└── README.md            # Project documentation
-```
+- Noncommercial use is allowed
+- Commercial use is not allowed
 
-## 🤝 Contributing
+See [LICENSE](LICENSE) for details.
 
-Contributions are welcome! Please follow these steps:
+## Disclaimer
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'feat: Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Code Standards
-
-- Follow [Go Code Review Comments](https://github.com/golang/go/wiki/CodeReviewComments)
-- Format code with `gofmt`
-- Check code with `go vet`
-- Follow [Conventional Commits](https://conventionalcommits.org/) for commit messages
-
-## 📄 License
-
-This project is licensed under [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
-Commercial use is not permitted. See the [LICENSE](LICENSE) file for details.
-
-## ⚠️ Disclaimer
-
-Please comply with the terms of service of related services when using this project.
-
----
-
-⭐ If this project helps you, please give us a Star!
+You are responsible for evaluating and complying with the terms and risks of Cursor and any upstream services you rely on.
